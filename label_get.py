@@ -3,7 +3,7 @@ provinces = ["皖", "沪", "津", "渝", "冀", "晋", "蒙", "辽", "吉", "黑
              "鄂", "湘", "粤", "桂", "琼", "川", "贵", "云", "藏", "陕", "甘", "青", "宁", "新", "警", "学", "O"]
 alphabets = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M', 'N',
              'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'O']
-ads = alphabets + [str(i) for i in range(10)] + ['O']
+ads = alphabets[:-1] + [str(i) for i in range(10)] + ['O']
 input_dir = 'recognition\images'
 output_dir = 'recognition\labels'
 

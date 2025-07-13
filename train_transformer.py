@@ -21,7 +21,7 @@ DEFAULT_TRAIN_LABEL_FOLDER = r'./recognition/labels/train'
 DEFAULT_VAL_LABEL_FOLDER = r'./recognition/labels/val'
 DEFAULT_BATCH_SIZE = 64
 DEFAULT_LEARNING_RATE = 0.0001
-DEFAULT_NUM_EPOCHS = 200
+DEFAULT_NUM_EPOCHS = 300
 DEFAULT_CHECKPOINT_PATH = 'last_model.pth'
 
 img_size = 224
@@ -38,7 +38,7 @@ checkpoints_folder = 'checkpoints'
 
 
 # 词汇表
-vocab_list = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '云', '京', '冀', '吉', '学', '宁', '川', '挂', '新', '晋', '桂', '沪', '津', '浙', '渝', '湘', '琼', '甘', '皖', '粤', '苏', '蒙', '藏', '警', '豫', '贵', '赣', '辽', '鄂', '闽', '陕', '青', '鲁', '黑']
+vocab_list = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'O', '云', '京', '冀', '吉', '学', '宁', '川', '挂', '新', '晋', '桂', '沪', '津', '浙', '渝', '湘', '琼', '甘', '皖', '粤', '苏', '蒙', '藏', '警', '豫', '贵', '赣', '辽', '鄂', '闽', '陕', '青', '鲁', '黑']
 vocab = LicensePlateVocab(vocab_list)
 
 def get_train_transform(default_transform=True):
@@ -224,10 +224,30 @@ if __name__ == '__main__':
     
     # 创建数据集和数据加载器
     train_dataset = LicensePlateDataset(args.train_folder, args.train_label_folder, vocab, max_length, get_train_transform(True))
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=8)
+    # train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=8)
 
     val_dataset = LicensePlateDataset(args.val_folder, args.val_label_folder, vocab, max_length, get_train_transform(True))
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size // 4, shuffle=False, num_workers=4)
+    # val_loader = DataLoader(val_dataset, batch_size=args.batch_size // 4, shuffle=False, num_workers=4)
+
+    train_loader = DataLoader(
+    train_dataset,
+    batch_size=args.batch_size,
+    shuffle=True,
+    num_workers=8,            # 并行加载数据
+    pin_memory=True,          # 加速数据从 CPU → GPU 的传输
+    prefetch_factor=4,        # 每个 worker 预加载多个 batch
+    persistent_workers=True   # worker 保持常驻，不每轮重启
+)
+
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=args.batch_size // 4,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=True,
+        persistent_workers=True
+    )
+
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = LicensePlateModel(pad_idx=vocab.pad_idx, d_model=64, nhead_encoder=4, nhead_decoder=4, num_encoder_layers=2, num_decoder_layers=2, dim_feedforward=512, vocab_size=len(vocab.vocab_list), max_length=max_length)
