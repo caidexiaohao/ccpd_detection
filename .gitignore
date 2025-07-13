@@ -1,0 +1,50 @@
+# 排除的文件夹
+datasets/
+recognition/
+checkpoints/
+checkpoint/
+no_use/
+runs/
+
+# Python相关
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 训练相关
+runs/
+*.pth
+*.pt
+*.pkl
+
+# 临时文件
+*.tmp
+*.log
+batch_images.png
+
+# IDE相关
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS相关
+.DS_Store
+Thumbs.db

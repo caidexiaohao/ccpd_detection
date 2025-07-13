@@ -1,0 +1,7 @@
+path: datasets # 👈 数据集的根目录
+train: images/train         # 👈 训练图像目录
+val: images/val             # 👈 验证图像目录
+test: images/test           # 👈 测试图像目录（可选）
+# 如果需要测试集，也可以添加 test: images/test
+
+names: ['license_plate']   # 👈 类别名称列表
