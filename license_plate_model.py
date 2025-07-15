@@ -78,6 +78,11 @@ class TextDecoder(nn.Module):
                 ),
             num_layers=num_layers)
         self.fc = nn.Linear(d_model, vocab_size)
+        self.length_head = nn.Sequential(
+            nn.AdaptiveAvgPool1d(1),  # 压缩时间维度
+            nn.Flatten(),             # 展平为 [B, D]
+            nn.Linear(d_model, max_length)  # 输出最大长度范围的预测
+        )
         
     def forward(self, memory, tgt):
         seq_length_tgt = tgt.size(1)
@@ -86,8 +91,10 @@ class TextDecoder(nn.Module):
         tgt_padding_mask = (tgt == self.pad_idx).to(tgt.device)
         
         output = self.transformer_decoder(tgt_emb, memory, tgt_mask=tgt_mask, tgt_key_padding_mask=tgt_padding_mask)
+        length_logits = self.length_head(output.transpose(1,2)) 
         output = self.fc(output)
-        return output
+        
+        return output, length_logits
     
     def generate_square_subsequent_mask(self, sz):
         mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)

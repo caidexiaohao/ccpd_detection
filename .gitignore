@@ -2,11 +2,12 @@
 datasets/
 recognition/
 checkpoints/
+checkpoints2/
 checkpoint/
 no_use/
 runs/
 error_samples/
-
+**/
 # Python相关
 __pycache__/
 *.py[cod]

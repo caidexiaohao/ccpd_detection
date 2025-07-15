@@ -20,8 +20,8 @@ DEFAULT_VAL_FOLDER = r'./recognition/images/val'
 DEFAULT_TRAIN_LABEL_FOLDER = r'./recognition/labels/train'
 DEFAULT_VAL_LABEL_FOLDER = r'./recognition/labels/val'
 DEFAULT_BATCH_SIZE = 64
-DEFAULT_LEARNING_RATE = 0.0001
-DEFAULT_NUM_EPOCHS = 300
+DEFAULT_LEARNING_RATE = 1e-4
+DEFAULT_NUM_EPOCHS = 400
 DEFAULT_CHECKPOINT_PATH = 'last_model.pth'
 
 img_size = 224
@@ -34,7 +34,7 @@ num_epochs = 200
 font_path = "C:/Windows/Fonts/simhei.ttf"  # 可以选择其他中文字体
 prop = fm.FontProperties(fname=font_path)
 
-checkpoints_folder = 'checkpoints'
+checkpoints_folder = 'checkpoints2'
 
 
 # 词汇表
@@ -62,65 +62,68 @@ def get_train_transform(default_transform=True):
     return chosen_transform
 
 # 训练函数
-def train(model, train_loader, val_loader, criterion, optimizer, num_epochs, start_epoch, device, best_acc, best_loss):
-    # 使用日期作为目录名
+def train(model, train_loader, val_loader, criterion, length_criterion, optimizer, num_epochs, start_epoch, device, best_acc, best_loss):
     writer = SummaryWriter(log_dir=f'runs/log_{time.strftime("%Y%m%d_%H%M%S")}')
-    
     best_val_loss = best_loss
     best_val_accuracy = best_acc
-    print(f'pretrained model best_acc: {best_val_accuracy}, best_loss: {best_val_loss}')
-    
-    train_loader.dataset.transform = get_train_transform(False)
-    data_iter = iter(train_loader)
-    images, labels = next(data_iter)
+    λ = 0.4  # 长度损失加权系数
 
-    # 显示图像和标签
-    fig, axes = plt.subplots(4, 4, figsize=(10, 10))
-    for i in range(4):
-        for j in range(4):
-            img = images[i*4+j].permute(1, 2, 0).numpy()
-            label = labels[i*4+j].numpy()
-            label_str = vocab.sequence_to_text(label)
-            axes[i][j].imshow(img)
-            axes[i][j].set_title(label_str, fontproperties=prop)
-            axes[i][j].axis('off')
-
-    # 保存图像
-    plt.savefig('batch_images.png')
-    
     for epoch in range(start_epoch, num_epochs):
         model.train()
         train_loader.dataset.transform = get_train_transform(epoch % 2 != 0)
+        train_ce = 0.0
+        train_len = 0.0
         train_loss = 0.0
-        train_loader_tqdm = tqdm(train_loader, desc=f'Epoch {epoch+1}/{num_epochs}', unit='batch')
         images_count = 0
+
+        train_loader_tqdm = tqdm(train_loader, desc=f'Epoch {epoch+1}/{num_epochs}', unit='batch')
         for images, tgt in train_loader_tqdm:
             images = images.to(device)
             tgt_input = tgt[:, :-1].to(device)
             tgt_output = tgt[:, 1:].to(device)
 
             optimizer.zero_grad()
-            outputs = model(images, tgt_input)
-            outputs = outputs.permute(0, 2, 1)
-            loss = criterion(outputs, tgt_output)
+            outputs, length_logits = model(images, tgt_input)
+
+            ce_loss = criterion(outputs.permute(0, 2, 1), tgt_output)
+            true_lengths = (tgt_output != vocab.pad_idx).sum(dim=1)
+            length_loss = length_criterion(length_logits, true_lengths)
+            loss = ce_loss + λ * length_loss
+
             loss.backward()
             optimizer.step()
+
             images_count += images.size(0)
-            
+            train_ce += ce_loss.item() * images.size(0)
+            train_len += length_loss.item() * images.size(0)
             train_loss += loss.item() * images.size(0)
-            train_loader_tqdm.set_postfix(loss=f"{train_loss / images_count:.8f}")
-            train_loader_tqdm.update(1)
 
-        train_loss = train_loss / images_count
-        
-        val_loss, val_accuracy, exact_match_accuracy = validate(model, val_loader, criterion, device)
-        
-        writer.add_scalar('Loss/train', train_loss, epoch)
-        writer.add_scalar('Loss/val', val_loss, epoch)
-        writer.add_scalar('Accuracy/val', val_accuracy, epoch)
-        writer.add_scalar('Accuracy/exact_match_val', exact_match_accuracy, epoch)
+            train_loader_tqdm.set_postfix(
+                ce_loss=f"{train_ce / images_count:.6f}",
+                len_loss=f"{train_len / images_count:.6f}"
+            )
 
-        print(f'Epoch {epoch + 1}/{num_epochs}, Train Loss: {train_loss:.8f}, Val Loss: {val_loss:.8f}, Val Accuracy: {val_accuracy:.4f}, Exact Match Accuracy: {exact_match_accuracy:.4f}')
+        train_ce_avg = train_ce / images_count
+        train_len_avg = train_len / images_count
+        train_loss_avg = train_loss / images_count
+
+        val_loss, val_accuracy, exact_match_accuracy, length_accuracy, val_ce_avg, val_len_avg = validate(
+            model, val_loader, criterion, length_criterion, device, λ
+        )
+
+        writer.add_scalar('Loss/train_total', train_loss_avg, epoch)
+        writer.add_scalar('Loss/train_char', train_ce_avg, epoch)
+        writer.add_scalar('Loss/train_length', train_len_avg, epoch)
+        writer.add_scalar('Loss/val_total', val_loss, epoch)
+        writer.add_scalar('Loss/val_char', val_ce_avg, epoch)
+        writer.add_scalar('Loss/val_length', val_len_avg, epoch)
+        writer.add_scalar('Accuracy/val_char', val_accuracy, epoch)
+        writer.add_scalar('Accuracy/val_exact_match', exact_match_accuracy, epoch)
+        writer.add_scalar('Accuracy/val_length', length_accuracy, epoch)
+
+        print(f"Epoch {epoch+1}/{num_epochs}")
+        print(f"Train Loss: {train_loss_avg:.6f}, Val Loss: {val_loss:.6f}")
+        print(f"Val Accuracy: {val_accuracy:.4f}, Exact Match: {exact_match_accuracy:.4f}, Length Accuracy: {length_accuracy:.4f}")
 
         save_best = False
         if val_loss < best_val_loss:
@@ -130,53 +133,67 @@ def train(model, train_loader, val_loader, criterion, optimizer, num_epochs, sta
             best_val_accuracy = val_accuracy
             save_best = True
 
-        save_checkpoint(model, optimizer, epoch + 1, train_loss, val_accuracy, val_loss, filename=f'last_model.pth')
-        
+        save_checkpoint(model, optimizer, epoch + 1, train_loss_avg, val_accuracy, val_loss, filename='last_model.pth')
+
         if save_best:
-            shutil.copyfile(os.path.join(checkpoints_folder, f'last_model.pth'), os.path.join(checkpoints_folder, f'best_model_{epoch+1}_{val_accuracy:.4f}_{exact_match_accuracy:.4f}_{val_loss:.8f}.pth'))
-            print(f'Best model saved (epoch {epoch+1}, val_accuracy {val_accuracy:.4f}, val_loss {val_loss:.8f})')
-    
+            shutil.copyfile(
+                os.path.join(checkpoints_folder, 'last_model.pth'),
+                os.path.join(checkpoints_folder, f'best_model_{epoch+1}_{val_accuracy:.4f}_{exact_match_accuracy:.4f}_{val_loss:.6f}.pth')
+            )
+            print("✅ Best model saved!")
+
     writer.close()
+
     
 # 验证函数
-def validate(model, val_loader, criterion, device):
+def validate(model, val_loader, criterion, length_criterion, device, λ):
     model.eval()
-    val_loss = 0.0
+    val_ce = 0.0
+    val_len = 0.0
     correct = 0
     exact_match_correct = 0
+    length_correct = 0
     total = 0
     images_count = 0
+
     val_loader_tqdm = tqdm(val_loader, desc='Validation', unit='batch', leave=False)
-    
     with torch.no_grad():
         for images, labels in val_loader_tqdm:
             images = images.to(device)
             labels = labels.to(device)
+            outputs, length_logits = model(images, labels[:, :-1])
 
-            outputs = model(images, labels[:, :-1])
-            outputs = outputs.permute(0, 2, 1)
-            loss = criterion(outputs, labels[:, 1:])
-            val_loss += loss.item() * images.size(0)
+            tgt_output = labels[:, 1:]
+            ce = criterion(outputs.permute(0, 2, 1), tgt_output)
+            val_ce += ce.item() * images.size(0)
+
+            true_lengths = (tgt_output != vocab.pad_idx).sum(dim=1)
+            len_loss = length_criterion(length_logits, true_lengths)
+            val_len += len_loss.item() * images.size(0)
+
+            val_loss_batch = ce.item() + λ * len_loss.item()
+            val_loader_tqdm.set_postfix(loss=f"{val_loss_batch:.6f}")
+
             images_count += images.size(0)
 
-            _, predicted = torch.max(outputs, 1)
-            
-            # 创建一个掩码，标识哪些位置不是 vocab.pad_idx
-            non_pad_mask = (labels[:, 1:] != vocab.pad_idx)
-
-            # 使用掩码来计算正确的预测
-            correct += (predicted[non_pad_mask] == labels[:, 1:][non_pad_mask]).sum().item()
+            _, predicted = torch.max(outputs, dim=2)
+            non_pad_mask = (tgt_output != vocab.pad_idx)
+            correct += (predicted[non_pad_mask] == tgt_output[non_pad_mask]).sum().item()
             total += non_pad_mask.sum().item()
+            exact_match_correct += ((predicted == tgt_output) | ~non_pad_mask).all(dim=1).sum().item()
+            predicted_lengths = torch.argmax(length_logits, dim=1)
+            length_correct += (predicted_lengths == true_lengths).sum().item()
 
-            # 计算每个序列的完全匹配情况
-            exact_match_correct += ((predicted == labels[:, 1:]) | ~non_pad_mask).all(dim=1).sum().item()
-            
-            val_loader_tqdm.set_postfix(loss=f"{val_loss/images_count:.5f}")
-
-    val_loss = val_loss / images_count
+    val_ce_avg = val_ce / images_count
+    val_len_avg = val_len / images_count
+    val_loss = val_ce_avg + λ * val_len_avg
     accuracy = correct / total
     exact_match_accuracy = exact_match_correct / images_count
-    return val_loss, accuracy, exact_match_accuracy
+    length_accuracy = length_correct / images_count
+
+    return val_loss, accuracy, exact_match_accuracy, length_accuracy, val_ce_avg, val_len_avg
+
+
 
 def save_checkpoint(model, optimizer, epoch, loss, best_acc, best_loss, filename):
     if not os.path.exists(checkpoints_folder):
@@ -257,6 +274,8 @@ if __name__ == '__main__':
     # model.backbone.load_state_dict(torch.load(r"C:\Users\mengchao\Downloads\450_act3_mobilenetv3_small.pth"), strict=False)
 
     criterion = nn.CrossEntropyLoss(ignore_index=vocab.pad_idx)
+    length_criterion = nn.CrossEntropyLoss() 
+    # length_criterion = nn.SmoothL1Loss()  # 或者使用Smooth
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     
     # 加载检查点（如果存在）
@@ -270,4 +289,5 @@ if __name__ == '__main__':
     # val_loss, val_accuracy, exact_match_accuracy = validate(model, val_loader, criterion, device)
     # print(f'Val Loss: {val_loss:.8f}, Val Accuracy: {val_accuracy:.4f}, Exact Match Accuracy: {exact_match_accuracy:.4f}')
     
-    train(model, train_loader, val_loader, criterion, optimizer, args.num_epochs, start_epoch, device, best_acc, best_loss)
+    train(model, train_loader, val_loader, criterion, length_criterion, optimizer, args.num_epochs, start_epoch, device, best_acc, best_loss)
+
