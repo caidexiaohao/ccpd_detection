@@ -72,24 +72,25 @@ def analyze_errors(model, val_loader, output_dir='error_samples2', csv_path='str
                 raw_pred_seq = vocab.sequence_to_text(predicted_indices[i].cpu().numpy())
                 trimmed_pred_seq = vocab.sequence_to_text(predicted_indices[i][:predicted_lengths[i]].cpu().numpy())
                 blur_score = compute_blur_score(images[i].cpu())
-
                 length_match = int(predicted_lengths[i].item() == true_lengths[i].item())
                 structure_error = int(not exact_match_mask[i] or not length_match)
 
-                filename = f"{batch_idx:03}_{i:02}_{true_seq}_{trimmed_pred_seq}.png"
-                save_image(images[i], Path(output_dir) / filename)
+                if structure_error:
+                    filename = f"{batch_idx:03}_{i:02}_{true_seq}_{trimmed_pred_seq}.png"
+                    save_image(images[i], Path(output_dir) / filename)
+                    report_rows.append([
+                        filename,
+                        true_seq,
+                        raw_pred_seq,
+                        trimmed_pred_seq,
+                        true_lengths[i].item(),
+                        predicted_lengths[i].item(),
+                        blur_score,
+                        'Yes' if blur_score < 100 else 'No',
+                        'Yes'
+                    ])
 
-                report_rows.append([
-                    filename,
-                    true_seq,
-                    raw_pred_seq,
-                    trimmed_pred_seq,
-                    true_lengths[i].item(),
-                    predicted_lengths[i].item(),
-                    blur_score,
-                    'Yes' if blur_score < 100 else 'No',
-                    'Yes' if structure_error else 'No'
-                ])
+
 
     # 保存 CSV 报告
     with open(csv_path, 'w', newline='', encoding='utf-8') as f:
@@ -103,8 +104,13 @@ def analyze_errors(model, val_loader, output_dir='error_samples2', csv_path='str
             'Predicted Length',
             'Blur Score',
             'Is Blurry',
-            'Structure Error'
-        ])
+            'Structure Error',
+            'Has EOS',
+            'EOS Position'
+            'Crop Method'
+
+    ])
+
         writer.writerows(report_rows)
 
     print(f"✅ 结构错误分析完成，共分析 {len(report_rows)} 条。图像保存在 {output_dir}/，详情见 {csv_path}")

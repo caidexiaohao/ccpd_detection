@@ -21,7 +21,7 @@ DEFAULT_TRAIN_LABEL_FOLDER = r'./recognition/labels/train'
 DEFAULT_VAL_LABEL_FOLDER = r'./recognition/labels/val'
 DEFAULT_BATCH_SIZE = 64
 DEFAULT_LEARNING_RATE = 1e-4
-DEFAULT_NUM_EPOCHS = 400
+DEFAULT_NUM_EPOCHS = 500
 DEFAULT_CHECKPOINT_PATH = 'last_model.pth'
 
 img_size = 224
@@ -273,7 +273,7 @@ if __name__ == '__main__':
     # 加载mobilenetv3预训练模型
     # model.backbone.load_state_dict(torch.load(r"C:\Users\mengchao\Downloads\450_act3_mobilenetv3_small.pth"), strict=False)
 
-    criterion = nn.CrossEntropyLoss(ignore_index=vocab.pad_idx)
+    criterion = nn.CrossEntropyLoss()
     length_criterion = nn.CrossEntropyLoss() 
     # length_criterion = nn.SmoothL1Loss()  # 或者使用Smooth
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
